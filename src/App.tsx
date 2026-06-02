@@ -21,6 +21,7 @@ type IdeaKind = 'Threads候補' | 'note候補' | 'AI実験候補';
 type ThreadLog = {
   id: string;
   publishedAt: string;
+  publishedTime: string;
   body: string;
   status: Status;
   views: number;
@@ -68,6 +69,7 @@ const statusMeta: Record<Status, { className: string; label: string }> = {
 
 const emptyLogForm = (): LogForm => ({
   publishedAt: new Date().toISOString().slice(0, 10),
+  publishedTime: '',
   body: '',
   status: '候補',
   views: 0,
@@ -98,6 +100,7 @@ const sampleLogs: ThreadLog[] = [
   {
     id: crypto.randomUUID(),
     publishedAt: new Date().toISOString().slice(0, 10),
+    publishedTime: '',
     body: '回復期に「今日は小さく進めば勝ち」と思える仕組みを作る話',
     status: '候補',
     views: 0,
@@ -126,8 +129,12 @@ function loadState(): { logs: ThreadLog[]; ideas: Idea[]; tags: string[] } {
       return { logs: sampleLogs, ideas: [], tags: starterTags };
     }
     const parsed = JSON.parse(raw) as { logs?: ThreadLog[]; ideas?: Idea[]; tags?: string[] };
+    const logs = (parsed.logs ?? []).map((log) => ({
+      ...log,
+      publishedTime: log.publishedTime ?? '',
+    }));
     return {
-      logs: parsed.logs ?? [],
+      logs,
       ideas: parsed.ideas ?? [],
       tags: parsed.tags?.length ? parsed.tags : starterTags,
     };
@@ -361,13 +368,21 @@ export function App() {
             <h2>{editingId ? '投稿を編集' : '投稿を追加'}</h2>
           </div>
 
-          <div className="form-grid two">
+          <div className="form-grid three">
             <label className="field">
               <span>公開日</span>
               <input
                 type="date"
                 value={logForm.publishedAt}
                 onChange={(event) => setLogForm({ ...logForm, publishedAt: event.target.value })}
+              />
+            </label>
+            <label className="field">
+              <span>投稿時間</span>
+              <input
+                type="time"
+                value={logForm.publishedTime}
+                onChange={(event) => setLogForm({ ...logForm, publishedTime: event.target.value })}
               />
             </label>
             <label className="field">
@@ -547,7 +562,7 @@ export function App() {
               <div className="log-card-head">
                 <div>
                   <span className={`status-badge ${statusMeta[log.status].className}`}>{statusMeta[log.status].label}</span>
-                  <time>{log.publishedAt}</time>
+                  <time>{log.publishedAt}{log.publishedTime ? ` ${log.publishedTime}` : ''}</time>
                 </div>
                 <div className="card-actions">
                   <button className="icon-button" type="button" onClick={() => editLog(log)} aria-label="投稿を編集">
