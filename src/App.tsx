@@ -26,6 +26,7 @@ type ThreadLog = {
   status: Status;
   views: number;
   likes: number;
+  comments: number;
   reposts: number;
   followerDelta: number;
   saves: number;
@@ -74,6 +75,7 @@ const emptyLogForm = (): LogForm => ({
   status: '候補',
   views: 0,
   likes: 0,
+  comments: 0,
   reposts: 0,
   followerDelta: 0,
   saves: 0,
@@ -105,6 +107,7 @@ const sampleLogs: ThreadLog[] = [
     status: '候補',
     views: 0,
     likes: 0,
+    comments: 0,
     reposts: 0,
     followerDelta: 0,
     saves: 0,
@@ -132,6 +135,7 @@ function loadState(): { logs: ThreadLog[]; ideas: Idea[]; tags: string[] } {
     const logs = (parsed.logs ?? []).map((log) => ({
       ...log,
       publishedTime: log.publishedTime ?? '',
+      comments: log.comments ?? 0,
     }));
     return {
       logs,
@@ -145,6 +149,15 @@ function loadState(): { logs: ThreadLog[]; ideas: Idea[]; tags: string[] } {
 
 function saveState(logs: ThreadLog[], ideas: Idea[], tags: string[]) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify({ logs, ideas, tags }));
+}
+
+function sortLogsByPublishedAt(logs: ThreadLog[]) {
+  return [...logs].sort((a, b) => {
+    const aDateTime = `${a.publishedAt}T${a.publishedTime || '00:00'}`;
+    const bDateTime = `${b.publishedAt}T${b.publishedTime || '00:00'}`;
+
+    return bDateTime.localeCompare(aDateTime);
+  });
 }
 
 function NumberField({
@@ -240,24 +253,25 @@ export function App() {
     persist(logs, ideas, nextTags);
   };
 
-  const filteredLogs = logs.filter((log) => {
+  const filteredLogs = sortLogsByPublishedAt(logs.filter((log) => {
     const text = [log.body, log.insight, log.growthReason, log.ownMemo, log.whyThought, ...log.tags]
       .join(' ')
       .toLowerCase();
     const matchesQuery = text.includes(query.toLowerCase());
     const matchesStatus = statusFilter === 'すべて' || log.status === statusFilter;
     return matchesQuery && matchesStatus;
-  });
+  }));
 
   const totals = logs.reduce(
     (acc, log) => ({
       views: acc.views + log.views,
       likes: acc.likes + log.likes,
+      comments: acc.comments + log.comments,
       reposts: acc.reposts + log.reposts,
       saves: acc.saves + log.saves,
       followerDelta: acc.followerDelta + log.followerDelta,
     }),
-    { views: 0, likes: 0, reposts: 0, saves: 0, followerDelta: 0 },
+    { views: 0, likes: 0, comments: 0, reposts: 0, saves: 0, followerDelta: 0 },
   );
 
   const toggleLogTag = (tag: string) => {
@@ -289,16 +303,18 @@ export function App() {
     if (!logForm.body.trim()) return;
 
     if (editingId) {
-      const nextLogs = logs.map((log) =>
-        log.id === editingId ? { ...logForm, id: editingId, updatedAt: new Date().toISOString() } : log,
+      const nextLogs = sortLogsByPublishedAt(
+        logs.map((log) =>
+          log.id === editingId ? { ...logForm, id: editingId, updatedAt: new Date().toISOString() } : log,
+        ),
       );
       updateLogs(nextLogs);
       setEditingId(null);
     } else {
-      const nextLogs = [
+      const nextLogs = sortLogsByPublishedAt([
         { ...logForm, id: crypto.randomUUID(), updatedAt: new Date().toISOString() },
         ...logs,
-      ];
+      ]);
       updateLogs(nextLogs);
     }
     setLogForm(emptyLogForm());
@@ -350,6 +366,10 @@ export function App() {
         <div>
           <span>いいね</span>
           <strong>{totals.likes.toLocaleString()}</strong>
+        </div>
+        <div>
+          <span>コメント</span>
+          <strong>{totals.comments.toLocaleString()}</strong>
         </div>
         <div>
           <span>保存</span>
@@ -411,6 +431,7 @@ export function App() {
           <div className="form-grid metrics">
             <NumberField label="閲覧数" value={logForm.views} onChange={(views) => setLogForm({ ...logForm, views })} />
             <NumberField label="いいね" value={logForm.likes} onChange={(likes) => setLogForm({ ...logForm, likes })} />
+            <NumberField label="コメント数" value={logForm.comments} onChange={(comments) => setLogForm({ ...logForm, comments })} />
             <NumberField label="リポスト" value={logForm.reposts} onChange={(reposts) => setLogForm({ ...logForm, reposts })} />
             <NumberField label="フォロワー増減" value={logForm.followerDelta} onChange={(followerDelta) => setLogForm({ ...logForm, followerDelta })} />
             <NumberField label="保存" value={logForm.saves} onChange={(saves) => setLogForm({ ...logForm, saves })} />
@@ -582,6 +603,7 @@ export function App() {
               <div className="metric-row">
                 <span>閲覧 {log.views.toLocaleString()}</span>
                 <span>いいね {log.likes.toLocaleString()}</span>
+                <span>コメント {log.comments.toLocaleString()}</span>
                 <span>リポスト {log.reposts.toLocaleString()}</span>
                 <span>保存 {log.saves.toLocaleString()}</span>
                 <span>フォロワー {log.followerDelta > 0 ? `+${log.followerDelta}` : log.followerDelta}</span>
