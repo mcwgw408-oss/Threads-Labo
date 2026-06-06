@@ -1,349 +1,431 @@
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, ReactNode, useMemo, useState } from 'react';
 import {
-  BookOpen,
-  Check,
   CirclePlus,
   Edit3,
-  FlaskConical,
+  FileText,
+  Home,
   Lightbulb,
-  NotebookPen,
-  Plus,
+  MessageSquare,
   RotateCcw,
   Save,
   Search,
-  Sparkles,
+  Star,
   Trash2,
+  Users,
 } from 'lucide-react';
 
-type Status = '候補' | '執筆中' | '予約投稿' | '投稿完了';
-type IdeaKind = 'Threads候補' | 'note候補' | 'AI実験候補';
+type Page = 'top' | 'posts' | 'ideas' | 'following' | 'followers';
+type PostStatus = '候補' | '予約投稿日時' | '投稿完了';
+type RelationshipKind = 'following' | 'followers';
 
-type ThreadLog = {
+type PostComment = {
   id: string;
-  publishedAt: string;
-  publishedTime: string;
+  followerName: string;
+  content: string;
+};
+
+type Post = {
+  id: string;
   body: string;
-  status: Status;
-  views: number;
-  likes: number;
-  comments: number;
-  reposts: number;
-  followerDelta: number;
-  saves: number;
-  insight: string;
-  growthReason: string;
-  noteCandidate: boolean;
-  aiLabCandidate: boolean;
-  recoveryCandidate: boolean;
-  tags: string[];
-  ownMemo: string;
-  whyThought: string;
-  makeNote: boolean;
-  makeSeries: boolean;
+  status: PostStatus;
+  scheduledAt: string;
+  comments: PostComment[];
   updatedAt: string;
 };
 
 type Idea = {
   id: string;
-  kind: IdeaKind;
-  title: string;
+  idea: string;
   memo: string;
-  tags: string[];
-  createdAt: string;
+  category: string;
+  updatedAt: string;
 };
 
-type LogForm = Omit<ThreadLog, 'id' | 'updatedAt'>;
-type IdeaForm = Omit<Idea, 'id' | 'createdAt'>;
-
-const STORAGE_KEY = 'threads-labo-state-v1';
-
-const statuses: Status[] = ['候補', '執筆中', '予約投稿', '投稿完了'];
-const ideaKinds: IdeaKind[] = ['Threads候補', 'note候補', 'AI実験候補'];
-const starterTags = ['AI', '回復期', '生活', '発見', 'ゲーム', '睡眠'];
-
-const statusMeta: Record<Status, { className: string; label: string }> = {
-  候補: { className: 'status-idea', label: '候補' },
-  執筆中: { className: 'status-writing', label: '執筆中' },
-  予約投稿: { className: 'status-scheduled', label: '予約投稿' },
-  投稿完了: { className: 'status-done', label: '投稿完了' },
+type RelationshipEntry = {
+  id: string;
+  kind: RelationshipKind;
+  name: string;
+  interestRating: 1 | 2 | 3;
+  insight: string;
+  funPoint: string;
+  idea: string;
+  memo: string;
+  updatedAt: string;
 };
 
-const emptyLogForm = (): LogForm => ({
-  publishedAt: new Date().toISOString().slice(0, 10),
-  publishedTime: '',
+type PostForm = Omit<Post, 'id' | 'updatedAt'>;
+type IdeaForm = Omit<Idea, 'id' | 'updatedAt'>;
+type RelationshipForm = Omit<RelationshipEntry, 'id' | 'kind' | 'updatedAt'>;
+
+const STORAGE_KEY = 'threads-labo-state-v3';
+const RELATIONSHIP_STORAGE_KEY = 'threads-labo-state-v2';
+
+const pageLabels: Record<Page, string> = {
+  top: 'TOP',
+  posts: '投稿',
+  ideas: 'アイデア保管庫',
+  following: 'フォロー',
+  followers: 'フォロワー',
+};
+
+const postStatuses: PostStatus[] = ['候補', '予約投稿日時', '投稿完了'];
+
+const relationshipLabels: Record<RelationshipKind, string> = {
+  following: 'フォロー',
+  followers: 'フォロワー',
+};
+
+const emptyPostForm = (): PostForm => ({
   body: '',
   status: '候補',
-  views: 0,
-  likes: 0,
-  comments: 0,
-  reposts: 0,
-  followerDelta: 0,
-  saves: 0,
-  insight: '',
-  growthReason: '',
-  noteCandidate: false,
-  aiLabCandidate: false,
-  recoveryCandidate: false,
-  tags: [],
-  ownMemo: '',
-  whyThought: '',
-  makeNote: false,
-  makeSeries: false,
+  scheduledAt: '',
+  comments: [{ id: crypto.randomUUID(), followerName: '', content: '' }],
 });
 
 const emptyIdeaForm = (): IdeaForm => ({
-  kind: 'Threads候補',
-  title: '',
+  idea: '',
   memo: '',
-  tags: [],
+  category: '',
 });
 
-const sampleLogs: ThreadLog[] = [
-  {
-    id: crypto.randomUUID(),
-    publishedAt: new Date().toISOString().slice(0, 10),
-    publishedTime: '',
-    body: '回復期に「今日は小さく進めば勝ち」と思える仕組みを作る話',
-    status: '候補',
-    views: 0,
-    likes: 0,
-    comments: 0,
-    reposts: 0,
-    followerDelta: 0,
-    saves: 0,
-    insight: 'やさしい実用ネタはシリーズ化しやすい',
-    growthReason: '',
-    noteCandidate: true,
-    aiLabCandidate: false,
-    recoveryCandidate: true,
-    tags: ['回復期', '生活'],
-    ownMemo: '短文で出して、反応があればnoteへ',
-    whyThought: '',
-    makeNote: true,
-    makeSeries: true,
-    updatedAt: new Date().toISOString(),
-  },
-];
+const emptyRelationshipForm = (): RelationshipForm => ({
+  name: '',
+  interestRating: 1,
+  insight: '',
+  funPoint: '',
+  idea: '',
+  memo: '',
+});
 
-function loadState(): { logs: ThreadLog[]; ideas: Idea[]; tags: string[] } {
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function sortByUpdatedAt<T extends { updatedAt: string }>(items: T[]) {
+  return [...items].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+function normalizePostComments(comments: PostComment[]) {
+  return comments
+    .map((comment) => ({
+      ...comment,
+      followerName: comment.followerName.trim(),
+      content: comment.content.trim(),
+    }))
+    .filter((comment) => comment.followerName || comment.content);
+}
+
+function loadState(): { posts: Post[]; ideas: Idea[]; relationships: RelationshipEntry[] } {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      return { logs: sampleLogs, ideas: [], tags: starterTags };
+    if (raw) {
+      const parsed = JSON.parse(raw) as {
+        posts?: Post[];
+        ideas?: Idea[];
+        relationships?: RelationshipEntry[];
+      };
+      return {
+        posts: parsed.posts ?? [],
+        ideas: parsed.ideas ?? [],
+        relationships: parsed.relationships ?? [],
+      };
     }
-    const parsed = JSON.parse(raw) as { logs?: ThreadLog[]; ideas?: Idea[]; tags?: string[] };
-    const logs = (parsed.logs ?? []).map((log) => ({
-      ...log,
-      publishedTime: log.publishedTime ?? '',
-      comments: log.comments ?? 0,
-    }));
+
+    const legacyRaw = localStorage.getItem(RELATIONSHIP_STORAGE_KEY);
+    if (!legacyRaw) {
+      return { posts: [], ideas: [], relationships: [] };
+    }
+
+    const legacy = JSON.parse(legacyRaw) as {
+      logs?: Array<{ id?: string; body?: string; status?: string; publishedAt?: string; publishedTime?: string; comments?: number; updatedAt?: string }>;
+      ideas?: Array<{ id?: string; title?: string; memo?: string; kind?: string; createdAt?: string }>;
+      relationships?: RelationshipEntry[];
+    };
+
+    const posts = (legacy.logs ?? []).map((log) => ({
+      id: log.id ?? crypto.randomUUID(),
+      body: log.body ?? '',
+      status: log.status === '投稿済み' ? '投稿完了' : '候補',
+      scheduledAt: log.publishedAt ? `${log.publishedAt}${log.publishedTime ? `T${log.publishedTime}` : ''}` : '',
+      comments: log.comments ? [{ id: crypto.randomUUID(), followerName: '', content: `${log.comments}件` }] : [],
+      updatedAt: log.updatedAt ?? nowIso(),
+    })) satisfies Post[];
+
+    const ideas = (legacy.ideas ?? []).map((idea) => ({
+      id: idea.id ?? crypto.randomUUID(),
+      idea: idea.title ?? '',
+      memo: idea.memo ?? '',
+      category: idea.kind ?? '',
+      updatedAt: idea.createdAt ?? nowIso(),
+    })) satisfies Idea[];
+
     return {
-      logs,
-      ideas: parsed.ideas ?? [],
-      tags: parsed.tags?.length ? parsed.tags : starterTags,
+      posts,
+      ideas,
+      relationships: legacy.relationships ?? [],
     };
   } catch {
-    return { logs: sampleLogs, ideas: [], tags: starterTags };
+    return { posts: [], ideas: [], relationships: [] };
   }
 }
 
-function saveState(logs: ThreadLog[], ideas: Idea[], tags: string[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({ logs, ideas, tags }));
+function saveState(posts: Post[], ideas: Idea[], relationships: RelationshipEntry[]) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ posts, ideas, relationships }));
 }
 
-function sortLogsByPublishedAt(logs: ThreadLog[]) {
-  return [...logs].sort((a, b) => {
-    const aDateTime = `${a.publishedAt}T${a.publishedTime || '00:00'}`;
-    const bDateTime = `${b.publishedAt}T${b.publishedTime || '00:00'}`;
-
-    return bDateTime.localeCompare(aDateTime);
-  });
-}
-
-function NumberField({
-  label,
+function RatingInput({
   value,
   onChange,
 }: {
-  label: string;
-  value: number;
-  onChange: (value: number) => void;
+  value: 1 | 2 | 3;
+  onChange: (value: 1 | 2 | 3) => void;
 }) {
   return (
-    <label className="field">
-      <span>{label}</span>
-      <input
-        inputMode="numeric"
-        type="number"
-        value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
-      />
-    </label>
-  );
-}
-
-function TogglePill({
-  active,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button className={`pill ${active ? 'is-active' : ''}`} type="button" onClick={onClick}>
-      {active && <Check size={14} />}
-      {label}
-    </button>
-  );
-}
-
-function TagPicker({
-  selected,
-  tags,
-  onToggle,
-}: {
-  selected: string[];
-  tags: string[];
-  onToggle: (tag: string) => void;
-}) {
-  return (
-    <div className="tag-grid">
-      {tags.map((tag) => (
-        <TogglePill
-          key={tag}
-          active={selected.includes(tag)}
-          label={tag}
-          onClick={() => onToggle(tag)}
-        />
+    <div className="rating-input" aria-label="気になる評価">
+      {[1, 2, 3].map((rating) => (
+        <button
+          key={rating}
+          type="button"
+          className={rating <= value ? 'is-active' : ''}
+          onClick={() => onChange(rating as 1 | 2 | 3)}
+          aria-label={`${rating}つ星`}
+        >
+          <Star size={20} fill="currentColor" />
+        </button>
       ))}
     </div>
   );
 }
 
+function RatingStars({ value }: { value: 1 | 2 | 3 }) {
+  return (
+    <span className="rating-stars" aria-label={`気になる評価 ${value}`}>
+      {[1, 2, 3].map((rating) => (
+        <Star key={rating} size={16} fill={rating <= value ? 'currentColor' : 'none'} />
+      ))}
+    </span>
+  );
+}
+
+function PageIcon({ page }: { page: Page }) {
+  if (page === 'top') return <Home size={17} />;
+  if (page === 'posts') return <FileText size={17} />;
+  if (page === 'ideas') return <Lightbulb size={17} />;
+  return <Users size={17} />;
+}
+
 export function App() {
   const initial = useMemo(() => loadState(), []);
-  const [logs, setLogs] = useState<ThreadLog[]>(initial.logs);
+  const [page, setPage] = useState<Page>('top');
+  const [posts, setPosts] = useState<Post[]>(initial.posts);
   const [ideas, setIdeas] = useState<Idea[]>(initial.ideas);
-  const [tags, setTags] = useState<string[]>(initial.tags);
-  const [logForm, setLogForm] = useState<LogForm>(emptyLogForm);
+  const [relationships, setRelationships] = useState<RelationshipEntry[]>(initial.relationships);
+  const [postForm, setPostForm] = useState<PostForm>(emptyPostForm);
   const [ideaForm, setIdeaForm] = useState<IdeaForm>(emptyIdeaForm);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [newTag, setNewTag] = useState('');
-  const [query, setQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<Status | 'すべて'>('すべて');
+  const [relationshipForm, setRelationshipForm] = useState<RelationshipForm>(emptyRelationshipForm);
+  const [editingPostId, setEditingPostId] = useState<string | null>(null);
+  const [editingIdeaId, setEditingIdeaId] = useState<string | null>(null);
+  const [editingRelationshipId, setEditingRelationshipId] = useState<string | null>(null);
+  const [postQuery, setPostQuery] = useState('');
+  const [ideaQuery, setIdeaQuery] = useState('');
+  const [relationshipQuery, setRelationshipQuery] = useState('');
 
-  const persist = (nextLogs = logs, nextIdeas = ideas, nextTags = tags) => {
-    saveState(nextLogs, nextIdeas, nextTags);
-  };
+  const currentKind: RelationshipKind = page === 'followers' ? 'followers' : 'following';
+  const sortedPosts = sortByUpdatedAt(posts);
+  const sortedIdeas = sortByUpdatedAt(ideas);
+  const sortedRelationships = sortByUpdatedAt(relationships);
 
-  const updateLogs = (nextLogs: ThreadLog[]) => {
-    setLogs(nextLogs);
-    persist(nextLogs, ideas, tags);
-  };
-
-  const updateIdeas = (nextIdeas: Idea[]) => {
+  const updateAll = (nextPosts = posts, nextIdeas = ideas, nextRelationships = relationships) => {
+    setPosts(nextPosts);
     setIdeas(nextIdeas);
-    persist(logs, nextIdeas, tags);
+    setRelationships(nextRelationships);
+    saveState(nextPosts, nextIdeas, nextRelationships);
   };
 
-  const updateTags = (nextTags: string[]) => {
-    setTags(nextTags);
-    persist(logs, ideas, nextTags);
-  };
-
-  const filteredLogs = sortLogsByPublishedAt(logs.filter((log) => {
-    const text = [log.body, log.insight, log.growthReason, log.ownMemo, log.whyThought, ...log.tags]
-      .join(' ')
-      .toLowerCase();
-    const matchesQuery = text.includes(query.toLowerCase());
-    const matchesStatus = statusFilter === 'すべて' || log.status === statusFilter;
-    return matchesQuery && matchesStatus;
-  }));
-
-  const totals = logs.reduce(
-    (acc, log) => ({
-      views: acc.views + log.views,
-      likes: acc.likes + log.likes,
-      comments: acc.comments + log.comments,
-      reposts: acc.reposts + log.reposts,
-      saves: acc.saves + log.saves,
-      followerDelta: acc.followerDelta + log.followerDelta,
-    }),
-    { views: 0, likes: 0, comments: 0, reposts: 0, saves: 0, followerDelta: 0 },
-  );
-
-  const toggleLogTag = (tag: string) => {
-    setLogForm((current) => ({
-      ...current,
-      tags: current.tags.includes(tag) ? current.tags.filter((item) => item !== tag) : [...current.tags, tag],
-    }));
-  };
-
-  const toggleIdeaTag = (tag: string) => {
-    setIdeaForm((current) => ({
-      ...current,
-      tags: current.tags.includes(tag) ? current.tags.filter((item) => item !== tag) : [...current.tags, tag],
-    }));
-  };
-
-  const addTag = () => {
-    const normalized = newTag.trim();
-    if (!normalized || tags.includes(normalized)) {
-      setNewTag('');
-      return;
-    }
-    updateTags([...tags, normalized]);
-    setNewTag('');
-  };
-
-  const submitLog = (event: FormEvent) => {
-    event.preventDefault();
-    if (!logForm.body.trim()) return;
-
-    if (editingId) {
-      const nextLogs = sortLogsByPublishedAt(
-        logs.map((log) =>
-          log.id === editingId ? { ...logForm, id: editingId, updatedAt: new Date().toISOString() } : log,
-        ),
-      );
-      updateLogs(nextLogs);
-      setEditingId(null);
-    } else {
-      const nextLogs = sortLogsByPublishedAt([
-        { ...logForm, id: crypto.randomUUID(), updatedAt: new Date().toISOString() },
-        ...logs,
-      ]);
-      updateLogs(nextLogs);
-    }
-    setLogForm(emptyLogForm());
-  };
-
-  const editLog = (log: ThreadLog) => {
-    const { id: _id, updatedAt: _updatedAt, ...form } = log;
-    setLogForm(form);
-    setEditingId(log.id);
+  const switchPage = (nextPage: Page) => {
+    setPage(nextPage);
+    setEditingPostId(null);
+    setEditingIdeaId(null);
+    setEditingRelationshipId(null);
+    setPostForm(emptyPostForm());
+    setIdeaForm(emptyIdeaForm());
+    setRelationshipForm(emptyRelationshipForm());
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const deleteLog = (id: string) => {
-    updateLogs(logs.filter((log) => log.id !== id));
-    if (editingId === id) {
-      setEditingId(null);
-      setLogForm(emptyLogForm());
+  const filteredPosts = sortedPosts.filter((post) => {
+    const text = [
+      post.body,
+      post.status,
+      post.scheduledAt,
+      ...post.comments.flatMap((comment) => [comment.followerName, comment.content]),
+    ].join(' ');
+    return text.toLowerCase().includes(postQuery.toLowerCase());
+  });
+
+  const filteredIdeas = sortedIdeas.filter((idea) => {
+    const text = [idea.idea, idea.memo, idea.category].join(' ');
+    return text.toLowerCase().includes(ideaQuery.toLowerCase());
+  });
+
+  const filteredRelationships = sortedRelationships.filter((entry) => {
+    const text = [entry.name, entry.insight, entry.funPoint, entry.idea, entry.memo].join(' ');
+    return entry.kind === currentKind && text.toLowerCase().includes(relationshipQuery.toLowerCase());
+  });
+
+  const counts = {
+    posts: posts.length,
+    ideas: ideas.length,
+    following: relationships.filter((entry) => entry.kind === 'following').length,
+    followers: relationships.filter((entry) => entry.kind === 'followers').length,
+  };
+
+  const submitPost = (event: FormEvent) => {
+    event.preventDefault();
+    if (!postForm.body.trim()) return;
+
+    const cleanForm = {
+      ...postForm,
+      body: postForm.body.trim(),
+      comments: normalizePostComments(postForm.comments),
+    };
+
+    if (editingPostId) {
+      const nextPosts = posts.map((post) =>
+        post.id === editingPostId ? { ...cleanForm, id: editingPostId, updatedAt: nowIso() } : post,
+      );
+      updateAll(nextPosts, ideas, relationships);
+      setEditingPostId(null);
+    } else {
+      updateAll([{ ...cleanForm, id: crypto.randomUUID(), updatedAt: nowIso() }, ...posts], ideas, relationships);
     }
+    setPostForm(emptyPostForm());
+  };
+
+  const editPost = (post: Post) => {
+    const { id: _id, updatedAt: _updatedAt, ...form } = post;
+    setPostForm({
+      ...form,
+      comments: form.comments.length ? form.comments : [{ id: crypto.randomUUID(), followerName: '', content: '' }],
+    });
+    setEditingPostId(post.id);
+    setPage('posts');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const deletePost = (id: string) => {
+    updateAll(posts.filter((post) => post.id !== id), ideas, relationships);
+    if (editingPostId === id) {
+      setEditingPostId(null);
+      setPostForm(emptyPostForm());
+    }
+  };
+
+  const updatePostComment = (id: string, patch: Partial<PostComment>) => {
+    setPostForm((current) => ({
+      ...current,
+      comments: current.comments.map((comment) => (comment.id === id ? { ...comment, ...patch } : comment)),
+    }));
+  };
+
+  const addPostComment = () => {
+    setPostForm((current) => ({
+      ...current,
+      comments: [...current.comments, { id: crypto.randomUUID(), followerName: '', content: '' }],
+    }));
+  };
+
+  const removePostComment = (id: string) => {
+    setPostForm((current) => ({
+      ...current,
+      comments: current.comments.length === 1
+        ? [{ id: crypto.randomUUID(), followerName: '', content: '' }]
+        : current.comments.filter((comment) => comment.id !== id),
+    }));
   };
 
   const submitIdea = (event: FormEvent) => {
     event.preventDefault();
-    if (!ideaForm.title.trim()) return;
-    updateIdeas([{ ...ideaForm, id: crypto.randomUUID(), createdAt: new Date().toISOString() }, ...ideas]);
+    if (!ideaForm.idea.trim()) return;
+
+    const cleanForm = {
+      idea: ideaForm.idea.trim(),
+      memo: ideaForm.memo.trim(),
+      category: ideaForm.category.trim(),
+    };
+
+    if (editingIdeaId) {
+      const nextIdeas = ideas.map((idea) =>
+        idea.id === editingIdeaId ? { ...cleanForm, id: editingIdeaId, updatedAt: nowIso() } : idea,
+      );
+      updateAll(posts, nextIdeas, relationships);
+      setEditingIdeaId(null);
+    } else {
+      updateAll(posts, [{ ...cleanForm, id: crypto.randomUUID(), updatedAt: nowIso() }, ...ideas], relationships);
+    }
     setIdeaForm(emptyIdeaForm());
   };
 
+  const editIdea = (idea: Idea) => {
+    const { id: _id, updatedAt: _updatedAt, ...form } = idea;
+    setIdeaForm(form);
+    setEditingIdeaId(idea.id);
+    setPage('ideas');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const deleteIdea = (id: string) => {
-    updateIdeas(ideas.filter((idea) => idea.id !== id));
+    updateAll(posts, ideas.filter((idea) => idea.id !== id), relationships);
+    if (editingIdeaId === id) {
+      setEditingIdeaId(null);
+      setIdeaForm(emptyIdeaForm());
+    }
+  };
+
+  const submitRelationship = (event: FormEvent) => {
+    event.preventDefault();
+    if (!relationshipForm.name.trim()) return;
+
+    const cleanForm = {
+      ...relationshipForm,
+      name: relationshipForm.name.trim(),
+      insight: relationshipForm.insight.trim(),
+      funPoint: relationshipForm.funPoint.trim(),
+      idea: relationshipForm.idea.trim(),
+      memo: relationshipForm.memo.trim(),
+    };
+
+    if (editingRelationshipId) {
+      const nextRelationships = relationships.map((entry) =>
+        entry.id === editingRelationshipId
+          ? { ...cleanForm, id: editingRelationshipId, kind: currentKind, updatedAt: nowIso() }
+          : entry,
+      );
+      updateAll(posts, ideas, nextRelationships);
+      setEditingRelationshipId(null);
+    } else {
+      updateAll(posts, ideas, [
+        { ...cleanForm, id: crypto.randomUUID(), kind: currentKind, updatedAt: nowIso() },
+        ...relationships,
+      ]);
+    }
+    setRelationshipForm(emptyRelationshipForm());
+  };
+
+  const editRelationship = (entry: RelationshipEntry) => {
+    const { id: _id, kind: _kind, updatedAt: _updatedAt, ...form } = entry;
+    setRelationshipForm(form);
+    setEditingRelationshipId(entry.id);
+    setPage(entry.kind);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const deleteRelationship = (id: string) => {
+    updateAll(posts, ideas, relationships.filter((entry) => entry.id !== id));
+    if (editingRelationshipId === id) {
+      setEditingRelationshipId(null);
+      setRelationshipForm(emptyRelationshipForm());
+    }
   };
 
   return (
@@ -354,297 +436,464 @@ export function App() {
           <h1>Threads Labo</h1>
         </div>
         <div className="top-actions">
-          <span>{logs.length}件</span>
+          <span>合計 {counts.posts + counts.ideas + counts.following + counts.followers}件</span>
         </div>
       </header>
 
-      <section className="summary-grid" aria-label="集計">
-        <div>
-          <span>閲覧数</span>
-          <strong>{totals.views.toLocaleString()}</strong>
-        </div>
-        <div>
-          <span>いいね</span>
-          <strong>{totals.likes.toLocaleString()}</strong>
-        </div>
-        <div>
-          <span>コメント</span>
-          <strong>{totals.comments.toLocaleString()}</strong>
-        </div>
-        <div>
-          <span>保存</span>
-          <strong>{totals.saves.toLocaleString()}</strong>
-        </div>
-        <div>
-          <span>フォロワー増減</span>
-          <strong>{totals.followerDelta > 0 ? `+${totals.followerDelta}` : totals.followerDelta}</strong>
-        </div>
-      </section>
+      <nav className="page-tabs" aria-label="ページ切り替え">
+        {(['top', 'posts', 'ideas', 'following', 'followers'] as Page[]).map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            className={page === tab ? 'is-active' : ''}
+            onClick={() => switchPage(tab)}
+          >
+            <PageIcon page={tab} />
+            {pageLabels[tab]}
+          </button>
+        ))}
+      </nav>
 
-      <section className="workspace">
-        <form className="panel editor-panel" onSubmit={submitLog}>
-          <div className="section-title">
-            <NotebookPen size={20} />
-            <h2>{editingId ? '投稿を編集' : '投稿を追加'}</h2>
-          </div>
-
-          <div className="form-grid three">
-            <label className="field">
-              <span>公開日</span>
-              <input
-                type="date"
-                value={logForm.publishedAt}
-                onChange={(event) => setLogForm({ ...logForm, publishedAt: event.target.value })}
-              />
-            </label>
-            <label className="field">
-              <span>投稿時間</span>
-              <input
-                type="time"
-                value={logForm.publishedTime}
-                onChange={(event) => setLogForm({ ...logForm, publishedTime: event.target.value })}
-              />
-            </label>
-            <label className="field">
-              <span>ステータス</span>
-              <select
-                value={logForm.status}
-                onChange={(event) => setLogForm({ ...logForm, status: event.target.value as Status })}
-              >
-                {statuses.map((status) => (
-                  <option key={status}>{status}</option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          <label className="field">
-            <span>投稿本文</span>
-            <textarea
-              rows={5}
-              value={logForm.body}
-              onChange={(event) => setLogForm({ ...logForm, body: event.target.value })}
-              placeholder="Threadsに投稿した本文、または候補文"
-            />
-          </label>
-
-          <div className="form-grid metrics">
-            <NumberField label="閲覧数" value={logForm.views} onChange={(views) => setLogForm({ ...logForm, views })} />
-            <NumberField label="いいね" value={logForm.likes} onChange={(likes) => setLogForm({ ...logForm, likes })} />
-            <NumberField label="コメント数" value={logForm.comments} onChange={(comments) => setLogForm({ ...logForm, comments })} />
-            <NumberField label="リポスト" value={logForm.reposts} onChange={(reposts) => setLogForm({ ...logForm, reposts })} />
-            <NumberField label="フォロワー増減" value={logForm.followerDelta} onChange={(followerDelta) => setLogForm({ ...logForm, followerDelta })} />
-            <NumberField label="保存" value={logForm.saves} onChange={(saves) => setLogForm({ ...logForm, saves })} />
-          </div>
-
-          <div className="form-grid two">
-            <label className="field">
-              <span>気づき</span>
-              <textarea
-                rows={3}
-                value={logForm.insight}
-                onChange={(event) => setLogForm({ ...logForm, insight: event.target.value })}
-              />
-            </label>
-            <label className="field">
-              <span>なぜ伸びた？</span>
-              <textarea
-                rows={3}
-                value={logForm.growthReason}
-                onChange={(event) => setLogForm({ ...logForm, growthReason: event.target.value })}
-              />
-            </label>
-          </div>
-
-          <div className="check-group">
-            <TogglePill active={logForm.noteCandidate} label="note化候補" onClick={() => setLogForm({ ...logForm, noteCandidate: !logForm.noteCandidate })} />
-            <TogglePill active={logForm.aiLabCandidate} label="AI実験室候補" onClick={() => setLogForm({ ...logForm, aiLabCandidate: !logForm.aiLabCandidate })} />
-            <TogglePill active={logForm.recoveryCandidate} label="回復期候補" onClick={() => setLogForm({ ...logForm, recoveryCandidate: !logForm.recoveryCandidate })} />
-          </div>
-
-          <div className="field">
-            <span>タグ</span>
-            <TagPicker selected={logForm.tags} tags={tags} onToggle={toggleLogTag} />
-            <div className="add-row">
-              <input
-                value={newTag}
-                onChange={(event) => setNewTag(event.target.value)}
-                placeholder="タグ追加"
-              />
-              <button className="icon-button" type="button" onClick={addTag} aria-label="タグを追加">
-                <Plus size={18} />
-              </button>
-            </div>
-          </div>
-
-          <div className="memo-box">
-            <div className="section-title small">
-              <Lightbulb size={18} />
-              <h3>自分メモ</h3>
-            </div>
-            <label className="field">
-              <span>自分メモ</span>
-              <textarea rows={3} value={logForm.ownMemo} onChange={(event) => setLogForm({ ...logForm, ownMemo: event.target.value })} />
-            </label>
-            <label className="field">
-              <span>なぜ伸びたと思う？</span>
-              <textarea rows={3} value={logForm.whyThought} onChange={(event) => setLogForm({ ...logForm, whyThought: event.target.value })} />
-            </label>
-            <div className="check-group">
-              <TogglePill active={logForm.makeNote} label="note化する？" onClick={() => setLogForm({ ...logForm, makeNote: !logForm.makeNote })} />
-              <TogglePill active={logForm.makeSeries} label="シリーズ化する？" onClick={() => setLogForm({ ...logForm, makeSeries: !logForm.makeSeries })} />
-            </div>
-          </div>
-
-          <div className="form-actions">
-            {editingId && (
-              <button className="secondary-button" type="button" onClick={() => { setEditingId(null); setLogForm(emptyLogForm()); }}>
-                <RotateCcw size={18} />
-                取り消し
-              </button>
-            )}
-            <button className="primary-button" type="submit">
-              {editingId ? <Save size={18} /> : <CirclePlus size={18} />}
-              {editingId ? '保存する' : '追加する'}
+      {page === 'top' && (
+        <section className="top-page">
+          <section className="summary-grid four" aria-label="全体の集計">
+            <button type="button" onClick={() => switchPage('posts')}>
+              <span>投稿</span>
+              <strong>{counts.posts}</strong>
             </button>
-          </div>
-        </form>
-
-        <aside className="panel idea-panel">
-          <div className="section-title">
-            <Sparkles size={20} />
-            <h2>アイデア保管</h2>
-          </div>
-          <form onSubmit={submitIdea} className="idea-form">
-            <label className="field">
-              <span>分類</span>
-              <select value={ideaForm.kind} onChange={(event) => setIdeaForm({ ...ideaForm, kind: event.target.value as IdeaKind })}>
-                {ideaKinds.map((kind) => (
-                  <option key={kind}>{kind}</option>
-                ))}
-              </select>
-            </label>
-            <label className="field">
+            <button type="button" onClick={() => switchPage('ideas')}>
               <span>アイデア</span>
-              <input value={ideaForm.title} onChange={(event) => setIdeaForm({ ...ideaForm, title: event.target.value })} placeholder="保管したいネタ" />
-            </label>
-            <label className="field">
-              <span>メモ</span>
-              <textarea rows={3} value={ideaForm.memo} onChange={(event) => setIdeaForm({ ...ideaForm, memo: event.target.value })} />
-            </label>
-            <TagPicker selected={ideaForm.tags} tags={tags} onToggle={toggleIdeaTag} />
-            <button className="primary-button full" type="submit">
-              <Plus size={18} />
-              保管する
+              <strong>{counts.ideas}</strong>
             </button>
-          </form>
+            <button type="button" onClick={() => switchPage('following')}>
+              <span>フォロー</span>
+              <strong>{counts.following}</strong>
+            </button>
+            <button type="button" onClick={() => switchPage('followers')}>
+              <span>フォロワー</span>
+              <strong>{counts.followers}</strong>
+            </button>
+          </section>
 
-          <div className="idea-list">
-            {ideas.length === 0 && <p className="empty">まだアイデアはありません。</p>}
-            {ideas.map((idea) => (
-              <article className="idea-card" key={idea.id}>
-                <div className="idea-head">
-                  <span>{idea.kind}</span>
-                  <button className="ghost-button" type="button" onClick={() => deleteIdea(idea.id)} aria-label="アイデアを削除">
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-                <h3>{idea.title}</h3>
-                {idea.memo && <p>{idea.memo}</p>}
-                <div className="mini-tags">
-                  {idea.tags.map((tag) => (
-                    <span key={tag}>{tag}</span>
+          <section className="dashboard-grid">
+            <DashboardPanel title="投稿" emptyText="投稿はまだありません。" onOpen={() => switchPage('posts')}>
+              {sortedPosts.slice(0, 4).map((post) => (
+                <PostCard key={post.id} post={post} onEdit={editPost} onDelete={deletePost} compact />
+              ))}
+            </DashboardPanel>
+            <DashboardPanel title="アイデア保管庫" emptyText="アイデアはまだありません。" onOpen={() => switchPage('ideas')}>
+              {sortedIdeas.slice(0, 4).map((idea) => (
+                <IdeaCard key={idea.id} idea={idea} onEdit={editIdea} onDelete={deleteIdea} compact />
+              ))}
+            </DashboardPanel>
+            <DashboardPanel title="フォロー" emptyText="フォロー記録はまだありません。" onOpen={() => switchPage('following')}>
+              {sortedRelationships.filter((entry) => entry.kind === 'following').slice(0, 4).map((entry) => (
+                <RelationshipCard key={entry.id} entry={entry} onEdit={editRelationship} onDelete={deleteRelationship} compact />
+              ))}
+            </DashboardPanel>
+            <DashboardPanel title="フォロワー" emptyText="フォロワー記録はまだありません。" onOpen={() => switchPage('followers')}>
+              {sortedRelationships.filter((entry) => entry.kind === 'followers').slice(0, 4).map((entry) => (
+                <RelationshipCard key={entry.id} entry={entry} onEdit={editRelationship} onDelete={deleteRelationship} compact />
+              ))}
+            </DashboardPanel>
+          </section>
+        </section>
+      )}
+
+      {page === 'posts' && (
+        <section className="page-stack">
+          <form className="panel editor-panel" onSubmit={submitPost}>
+            <div className="section-title">
+              <FileText size={20} />
+              <h2>{editingPostId ? '投稿を編集' : '投稿を追加'}</h2>
+            </div>
+
+            <label className="field">
+              <span>本文</span>
+              <textarea
+                rows={6}
+                value={postForm.body}
+                onChange={(event) => setPostForm({ ...postForm, body: event.target.value })}
+                placeholder="投稿本文を入力"
+              />
+            </label>
+
+            <div className="form-grid two">
+              <label className="field">
+                <span>ステータス</span>
+                <select
+                  value={postForm.status}
+                  onChange={(event) => setPostForm({ ...postForm, status: event.target.value as PostStatus })}
+                >
+                  {postStatuses.map((status) => (
+                    <option key={status}>{status}</option>
                   ))}
-                </div>
-              </article>
-            ))}
-          </div>
-        </aside>
-      </section>
+                </select>
+              </label>
+              <label className="field">
+                <span>予約投稿日時</span>
+                <input
+                  type="datetime-local"
+                  value={postForm.scheduledAt}
+                  onChange={(event) => setPostForm({ ...postForm, scheduledAt: event.target.value })}
+                />
+              </label>
+            </div>
 
-      <section className="log-section">
-        <div className="list-tools">
-          <div className="searchbox">
-            <Search size={18} />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="本文・タグ・気づきで検索" />
-          </div>
-          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as Status | 'すべて')}>
-            <option>すべて</option>
-            {statuses.map((status) => (
-              <option key={status}>{status}</option>
-            ))}
-          </select>
-        </div>
-
-        <div className="log-list">
-          {filteredLogs.length === 0 && <p className="empty">表示できる投稿がありません。</p>}
-          {filteredLogs.map((log) => (
-            <article className="log-card" key={log.id}>
-              <div className="log-card-head">
-                <div>
-                  <span className={`status-badge ${statusMeta[log.status].className}`}>{statusMeta[log.status].label}</span>
-                  <time>{log.publishedAt}{log.publishedTime ? ` ${log.publishedTime}` : ''}</time>
-                </div>
-                <div className="card-actions">
-                  <button className="icon-button" type="button" onClick={() => editLog(log)} aria-label="投稿を編集">
-                    <Edit3 size={17} />
-                  </button>
-                  <button className="icon-button danger" type="button" onClick={() => deleteLog(log.id)} aria-label="投稿を削除">
+            <div className="comment-editor">
+              <div className="section-title small">
+                <MessageSquare size={18} />
+                <h3>コメント欄</h3>
+              </div>
+              {postForm.comments.map((comment) => (
+                <div className="comment-row" key={comment.id}>
+                  <label className="field">
+                    <span>フォロワー名</span>
+                    <input
+                      value={comment.followerName}
+                      onChange={(event) => updatePostComment(comment.id, { followerName: event.target.value })}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>内容</span>
+                    <textarea
+                      rows={2}
+                      value={comment.content}
+                      onChange={(event) => updatePostComment(comment.id, { content: event.target.value })}
+                    />
+                  </label>
+                  <button className="icon-button danger" type="button" onClick={() => removePostComment(comment.id)} aria-label="コメントを削除">
                     <Trash2 size={17} />
                   </button>
                 </div>
-              </div>
-              <p className="post-body">{log.body}</p>
-              <div className="mini-tags">
-                {log.tags.map((tag) => (
-                  <span key={tag}>{tag}</span>
-                ))}
-              </div>
-              <div className="metric-row">
-                <span>閲覧 {log.views.toLocaleString()}</span>
-                <span>いいね {log.likes.toLocaleString()}</span>
-                <span>コメント {log.comments.toLocaleString()}</span>
-                <span>リポスト {log.reposts.toLocaleString()}</span>
-                <span>保存 {log.saves.toLocaleString()}</span>
-                <span>フォロワー {log.followerDelta > 0 ? `+${log.followerDelta}` : log.followerDelta}</span>
-              </div>
-              <div className="notes-grid">
-                {log.insight && (
-                  <div>
-                    <strong>気づき</strong>
-                    <p>{log.insight}</p>
-                  </div>
-                )}
-                {log.growthReason && (
-                  <div>
-                    <strong>なぜ伸びた？</strong>
-                    <p>{log.growthReason}</p>
-                  </div>
-                )}
-                {log.ownMemo && (
-                  <div>
-                    <strong>自分メモ</strong>
-                    <p>{log.ownMemo}</p>
-                  </div>
-                )}
-                {log.whyThought && (
-                  <div>
-                    <strong>仮説</strong>
-                    <p>{log.whyThought}</p>
-                  </div>
-                )}
-              </div>
-              <div className="candidate-row">
-                {log.noteCandidate && <span><BookOpen size={14} />note候補</span>}
-                {log.aiLabCandidate && <span><FlaskConical size={14} />AI実験室</span>}
-                {log.recoveryCandidate && <span>回復期</span>}
-                {log.makeNote && <span>note化する</span>}
-                {log.makeSeries && <span>シリーズ化</span>}
-              </div>
-            </article>
+              ))}
+              <button className="secondary-button" type="button" onClick={addPostComment}>
+                <CirclePlus size={18} />
+                コメントを追加
+              </button>
+            </div>
+
+            <div className="form-actions">
+              {editingPostId && (
+                <button className="secondary-button" type="button" onClick={() => { setEditingPostId(null); setPostForm(emptyPostForm()); }}>
+                  <RotateCcw size={18} />
+                  取り消し
+                </button>
+              )}
+              <button className="primary-button" type="submit">
+                {editingPostId ? <Save size={18} /> : <CirclePlus size={18} />}
+                {editingPostId ? '保存する' : '追加する'}
+              </button>
+            </div>
+          </form>
+
+          <ListTools value={postQuery} onChange={setPostQuery} placeholder="本文・コメント・フォロワー名で検索" />
+          <div className="card-list">
+            {filteredPosts.length === 0 && <p className="empty">投稿はまだありません。</p>}
+            {filteredPosts.map((post) => (
+              <PostCard key={post.id} post={post} onEdit={editPost} onDelete={deletePost} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {page === 'ideas' && (
+        <section className="page-stack">
+          <form className="panel editor-panel" onSubmit={submitIdea}>
+            <div className="section-title">
+              <Lightbulb size={20} />
+              <h2>{editingIdeaId ? 'アイデアを編集' : 'アイデアを追加'}</h2>
+            </div>
+
+            <div className="form-grid two">
+              <label className="field">
+                <span>アイデア</span>
+                <input
+                  value={ideaForm.idea}
+                  onChange={(event) => setIdeaForm({ ...ideaForm, idea: event.target.value })}
+                  placeholder="思いついたアイデア"
+                />
+              </label>
+              <label className="field">
+                <span>カテゴリ</span>
+                <input
+                  value={ideaForm.category}
+                  onChange={(event) => setIdeaForm({ ...ideaForm, category: event.target.value })}
+                  placeholder="例: 投稿ネタ、企画、note"
+                />
+              </label>
+            </div>
+
+            <label className="field">
+              <span>メモ</span>
+              <textarea rows={4} value={ideaForm.memo} onChange={(event) => setIdeaForm({ ...ideaForm, memo: event.target.value })} />
+            </label>
+
+            <div className="form-actions">
+              {editingIdeaId && (
+                <button className="secondary-button" type="button" onClick={() => { setEditingIdeaId(null); setIdeaForm(emptyIdeaForm()); }}>
+                  <RotateCcw size={18} />
+                  取り消し
+                </button>
+              )}
+              <button className="primary-button" type="submit">
+                {editingIdeaId ? <Save size={18} /> : <CirclePlus size={18} />}
+                {editingIdeaId ? '保存する' : '追加する'}
+              </button>
+            </div>
+          </form>
+
+          <ListTools value={ideaQuery} onChange={setIdeaQuery} placeholder="アイデア・メモ・カテゴリで検索" />
+          <div className="card-list">
+            {filteredIdeas.length === 0 && <p className="empty">アイデアはまだありません。</p>}
+            {filteredIdeas.map((idea) => (
+              <IdeaCard key={idea.id} idea={idea} onEdit={editIdea} onDelete={deleteIdea} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {(page === 'following' || page === 'followers') && (
+        <section className="page-stack">
+          <form className="panel editor-panel" onSubmit={submitRelationship}>
+            <div className="section-title">
+              <Users size={20} />
+              <h2>{editingRelationshipId ? `${relationshipLabels[currentKind]}を編集` : `${relationshipLabels[currentKind]}を追加`}</h2>
+            </div>
+
+            <div className="form-grid two">
+              <label className="field">
+                <span>名前</span>
+                <input
+                  value={relationshipForm.name}
+                  onChange={(event) => setRelationshipForm({ ...relationshipForm, name: event.target.value })}
+                  placeholder="アカウント名・表示名"
+                />
+              </label>
+              <label className="field">
+                <span>気になる評価</span>
+                <RatingInput
+                  value={relationshipForm.interestRating}
+                  onChange={(interestRating) => setRelationshipForm({ ...relationshipForm, interestRating })}
+                />
+              </label>
+            </div>
+
+            <div className="form-grid two">
+              <label className="field">
+                <span>気づき</span>
+                <textarea rows={3} value={relationshipForm.insight} onChange={(event) => setRelationshipForm({ ...relationshipForm, insight: event.target.value })} />
+              </label>
+              <label className="field">
+                <span>面白かったポイント</span>
+                <textarea rows={3} value={relationshipForm.funPoint} onChange={(event) => setRelationshipForm({ ...relationshipForm, funPoint: event.target.value })} />
+              </label>
+            </div>
+
+            <div className="form-grid two">
+              <label className="field">
+                <span>アイデア</span>
+                <textarea rows={3} value={relationshipForm.idea} onChange={(event) => setRelationshipForm({ ...relationshipForm, idea: event.target.value })} />
+              </label>
+              <label className="field">
+                <span>メモ</span>
+                <textarea rows={3} value={relationshipForm.memo} onChange={(event) => setRelationshipForm({ ...relationshipForm, memo: event.target.value })} />
+              </label>
+            </div>
+
+            <div className="form-actions">
+              {editingRelationshipId && (
+                <button className="secondary-button" type="button" onClick={() => { setEditingRelationshipId(null); setRelationshipForm(emptyRelationshipForm()); }}>
+                  <RotateCcw size={18} />
+                  取り消し
+                </button>
+              )}
+              <button className="primary-button" type="submit">
+                {editingRelationshipId ? <Save size={18} /> : <CirclePlus size={18} />}
+                {editingRelationshipId ? '保存する' : '追加する'}
+              </button>
+            </div>
+          </form>
+
+          <ListTools value={relationshipQuery} onChange={setRelationshipQuery} placeholder="名前・気づき・メモで検索" />
+          <div className="card-list">
+            {filteredRelationships.length === 0 && <p className="empty">{relationshipLabels[currentKind]}の記録はまだありません。</p>}
+            {filteredRelationships.map((entry) => (
+              <RelationshipCard key={entry.id} entry={entry} onEdit={editRelationship} onDelete={deleteRelationship} />
+            ))}
+          </div>
+        </section>
+      )}
+    </main>
+  );
+}
+
+function DashboardPanel({
+  title,
+  emptyText,
+  onOpen,
+  children,
+}: {
+  title: string;
+  emptyText: string;
+  onOpen: () => void;
+  children: ReactNode;
+}) {
+  const hasChildren = Array.isArray(children) ? children.length > 0 : Boolean(children);
+
+  return (
+    <section className="panel dashboard-panel">
+      <div className="panel-head">
+        <h2>{title}</h2>
+        <button className="ghost-link" type="button" onClick={onOpen}>開く</button>
+      </div>
+      <div className="compact-list">
+        {hasChildren ? children : <p className="empty slim">{emptyText}</p>}
+      </div>
+    </section>
+  );
+}
+
+function ListTools({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+}) {
+  return (
+    <div className="list-tools single">
+      <div className="searchbox">
+        <Search size={18} />
+        <input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} />
+      </div>
+    </div>
+  );
+}
+
+function PostCard({
+  post,
+  onEdit,
+  onDelete,
+  compact = false,
+}: {
+  post: Post;
+  onEdit: (post: Post) => void;
+  onDelete: (id: string) => void;
+  compact?: boolean;
+}) {
+  return (
+    <article className={`record-card ${compact ? 'is-compact' : ''}`}>
+      <div className="record-head">
+        <div>
+          <span className={`status-badge ${post.status === '投稿完了' ? 'status-done' : post.status === '予約投稿日時' ? 'status-scheduled' : 'status-idea'}`}>
+            {post.status}
+          </span>
+          {post.scheduledAt && <time>{post.scheduledAt.replace('T', ' ')}</time>}
+        </div>
+        <CardActions onEdit={() => onEdit(post)} onDelete={() => onDelete(post.id)} />
+      </div>
+      <p className="post-body">{post.body}</p>
+      {post.comments.length > 0 && (
+        <div className="comment-list">
+          {post.comments.map((comment) => (
+            <div key={comment.id}>
+              <strong>{comment.followerName || '名前なし'}</strong>
+              <p>{comment.content}</p>
+            </div>
           ))}
         </div>
-      </section>
-    </main>
+      )}
+    </article>
+  );
+}
+
+function IdeaCard({
+  idea,
+  onEdit,
+  onDelete,
+  compact = false,
+}: {
+  idea: Idea;
+  onEdit: (idea: Idea) => void;
+  onDelete: (id: string) => void;
+  compact?: boolean;
+}) {
+  return (
+    <article className={`record-card ${compact ? 'is-compact' : ''}`}>
+      <div className="record-head">
+        <div>
+          {idea.category && <span className="status-badge status-idea">{idea.category}</span>}
+          <h3>{idea.idea}</h3>
+        </div>
+        <CardActions onEdit={() => onEdit(idea)} onDelete={() => onDelete(idea.id)} />
+      </div>
+      {idea.memo && <p className="memo-text">{idea.memo}</p>}
+    </article>
+  );
+}
+
+function RelationshipCard({
+  entry,
+  onEdit,
+  onDelete,
+  compact = false,
+}: {
+  entry: RelationshipEntry;
+  onEdit: (entry: RelationshipEntry) => void;
+  onDelete: (id: string) => void;
+  compact?: boolean;
+}) {
+  return (
+    <article className={`record-card ${compact ? 'is-compact' : ''}`}>
+      <div className="record-head">
+        <div>
+          <h3>{entry.name}</h3>
+          <RatingStars value={entry.interestRating} />
+        </div>
+        <CardActions onEdit={() => onEdit(entry)} onDelete={() => onDelete(entry.id)} />
+      </div>
+      <div className="notes-grid">
+        {entry.insight && (
+          <div>
+            <strong>気づき</strong>
+            <p>{entry.insight}</p>
+          </div>
+        )}
+        {entry.funPoint && (
+          <div>
+            <strong>面白かったポイント</strong>
+            <p>{entry.funPoint}</p>
+          </div>
+        )}
+        {entry.idea && (
+          <div>
+            <strong>アイデア</strong>
+            <p>{entry.idea}</p>
+          </div>
+        )}
+        {entry.memo && (
+          <div>
+            <strong>メモ</strong>
+            <p>{entry.memo}</p>
+          </div>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function CardActions({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) {
+  return (
+    <div className="card-actions">
+      <button className="icon-button" type="button" onClick={onEdit} aria-label="編集">
+        <Edit3 size={17} />
+      </button>
+      <button className="icon-button danger" type="button" onClick={onDelete} aria-label="削除">
+        <Trash2 size={17} />
+      </button>
+    </div>
   );
 }
