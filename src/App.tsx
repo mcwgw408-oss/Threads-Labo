@@ -29,6 +29,10 @@ type Post = {
   body: string;
   status: PostStatus;
   scheduledAt: string;
+  views: number;
+  likes: number;
+  commentCount: number;
+  memo: string;
   comments: PostComment[];
   updatedAt: string;
 };
@@ -79,6 +83,10 @@ const emptyPostForm = (): PostForm => ({
   body: '',
   status: '候補',
   scheduledAt: '',
+  views: 0,
+  likes: 0,
+  commentCount: 0,
+  memo: '',
   comments: [{ id: crypto.randomUUID(), followerName: '', content: '' }],
 });
 
@@ -120,12 +128,22 @@ function loadState(): { posts: Post[]; ideas: Idea[]; relationships: Relationshi
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as {
-        posts?: Post[];
+        posts?: Partial<Post>[];
         ideas?: Idea[];
         relationships?: RelationshipEntry[];
       };
       return {
-        posts: parsed.posts ?? [],
+        posts: (parsed.posts ?? []).map((post) => ({
+          ...emptyPostForm(),
+          ...post,
+          id: post.id ?? crypto.randomUUID(),
+          views: post.views ?? 0,
+          likes: post.likes ?? 0,
+          commentCount: post.commentCount ?? 0,
+          memo: post.memo ?? '',
+          comments: post.comments ?? [],
+          updatedAt: post.updatedAt ?? nowIso(),
+        })),
         ideas: parsed.ideas ?? [],
         relationships: parsed.relationships ?? [],
       };
@@ -137,7 +155,7 @@ function loadState(): { posts: Post[]; ideas: Idea[]; relationships: Relationshi
     }
 
     const legacy = JSON.parse(legacyRaw) as {
-      logs?: Array<{ id?: string; body?: string; status?: string; publishedAt?: string; publishedTime?: string; comments?: number; updatedAt?: string }>;
+      logs?: Array<{ id?: string; body?: string; status?: string; publishedAt?: string; publishedTime?: string; views?: number; likes?: number; comments?: number; ownMemo?: string; updatedAt?: string }>;
       ideas?: Array<{ id?: string; title?: string; memo?: string; kind?: string; createdAt?: string }>;
       relationships?: RelationshipEntry[];
     };
@@ -147,6 +165,10 @@ function loadState(): { posts: Post[]; ideas: Idea[]; relationships: Relationshi
       body: log.body ?? '',
       status: log.status === '投稿済み' ? '投稿完了' : '候補',
       scheduledAt: log.publishedAt ? `${log.publishedAt}${log.publishedTime ? `T${log.publishedTime}` : ''}` : '',
+      views: log.views ?? 0,
+      likes: log.likes ?? 0,
+      commentCount: log.comments ?? 0,
+      memo: log.ownMemo ?? '',
       comments: log.comments ? [{ id: crypto.randomUUID(), followerName: '', content: `${log.comments}件` }] : [],
       updatedAt: log.updatedAt ?? nowIso(),
     })) satisfies Post[];
@@ -258,6 +280,10 @@ export function App() {
       post.body,
       post.status,
       post.scheduledAt,
+      post.memo,
+      String(post.views),
+      String(post.likes),
+      String(post.commentCount),
       ...post.comments.flatMap((comment) => [comment.followerName, comment.content]),
     ].join(' ');
     return text.toLowerCase().includes(postQuery.toLowerCase());
@@ -287,6 +313,10 @@ export function App() {
     const cleanForm = {
       ...postForm,
       body: postForm.body.trim(),
+      views: Number(postForm.views) || 0,
+      likes: Number(postForm.likes) || 0,
+      commentCount: Number(postForm.commentCount) || 0,
+      memo: postForm.memo.trim(),
       comments: normalizePostComments(postForm.comments),
     };
 
@@ -539,6 +569,49 @@ export function App() {
                 />
               </label>
             </div>
+
+            <div className="form-grid three">
+              <label className="field">
+                <span>ビュー</span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min="0"
+                  value={postForm.views}
+                  onChange={(event) => setPostForm({ ...postForm, views: Number(event.target.value) })}
+                />
+              </label>
+              <label className="field">
+                <span>いいね</span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min="0"
+                  value={postForm.likes}
+                  onChange={(event) => setPostForm({ ...postForm, likes: Number(event.target.value) })}
+                />
+              </label>
+              <label className="field">
+                <span>コメント</span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min="0"
+                  value={postForm.commentCount}
+                  onChange={(event) => setPostForm({ ...postForm, commentCount: Number(event.target.value) })}
+                />
+              </label>
+            </div>
+
+            <label className="field">
+              <span>メモ</span>
+              <textarea
+                rows={3}
+                value={postForm.memo}
+                onChange={(event) => setPostForm({ ...postForm, memo: event.target.value })}
+                placeholder="投稿について残しておきたいメモ"
+              />
+            </label>
 
             <div className="comment-editor">
               <div className="section-title small">
@@ -796,6 +869,12 @@ function PostCard({
         <CardActions onEdit={() => onEdit(post)} onDelete={() => onDelete(post.id)} />
       </div>
       <p className="post-body">{post.body}</p>
+      <div className="metric-row post-metrics">
+        <span>ビュー {post.views.toLocaleString()}</span>
+        <span>いいね {post.likes.toLocaleString()}</span>
+        <span>コメント {post.commentCount.toLocaleString()}</span>
+      </div>
+      {post.memo && <p className="memo-text">{post.memo}</p>}
       {post.comments.length > 0 && (
         <div className="comment-list">
           {post.comments.map((comment) => (
